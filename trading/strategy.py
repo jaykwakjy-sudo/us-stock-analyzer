@@ -128,6 +128,115 @@ class SignalScoreStrategy(BaseStrategy):
             score=score, confidence=confidence)
 
 
+@register_strategy
+class FinRLStrategy(BaseStrategy):
+    """FinRL 강화학습 모델 기반 전략
+
+    학습된 DRL 모델이 현재 상태(가격, 보유량, 지표)를 보고
+    각 종목별 매수/매도 행동을 결정.
+    모델이 없으면 signal_score 전략으로 폴백.
+    """
+    name = "finrl"
+
+    def __init__(self, config: dict):
+        super().__init__(config)
+        self._model = None
+        self._tickers: list[str] = []
+        self._fallback = SignalScoreStrategy(config)
+        self._load_model()
+
+    def _load_model(self):
+        import os
+        try:
+            from data.database import get_setting
+            finrl_config = get_setting("finrl_config") or {}
+            algo = finrl_config.get("active_algorithm", "ppo")
+
+            model_dir = os.path.join(
+                os.path.dirname(os.path.dirname(__file__)), "trained_models"
+            )
+            model_path = os.path.join(model_dir, f"agent_{algo}")
+
+            if not os.path.exists(model_path + ".zip"):
+                logger.warning(f"FinRL 모델 없음: {model_path}.zip → 폴백")
+                return
+
+            from stable_baselines3 import A2C, DDPG, PPO, SAC, TD3
+            ALGO_CLASSES = {"a2c": A2C, "ddpg": DDPG, "ppo": PPO, "sac": SAC, "td3": TD3}
+
+            cls = ALGO_CLASSES.get(algo)
+            if cls is None:
+                logger.warning(f"알 수 없는 알고리즘: {algo}")
+                return
+
+            self._model = cls.load(model_path)
+            logger.info(f"FinRL 모델 로드: {algo.upper()}")
+        except Exception as e:
+            logger.error(f"FinRL 모델 로드 실패: {e}")
+
+    def evaluate(self, ticker: str, analysis_result: dict,
+                 position: Optional[dict] = None) -> TradeSignal:
+        if self._model is None:
+            return self._fallback.evaluate(ticker, analysis_result, position)
+
+        score = analysis_result.get("final_score", 50)
+        confidence = analysis_result.get("confidence", 0)
+
+        stop_loss = self.config.get("stop_loss_pct", 5)
+        take_profit = self.config.get("take_profit_pct", 15)
+
+        if position and position.get("quantity", 0) > 0:
+            pnl_pct = position.get("unrealized_pnl_pct", 0)
+            if pnl_pct <= -stop_loss:
+                return TradeSignal(
+                    ticker=ticker, action="sell", strength=1.0,
+                    quantity_pct=1.0,
+                    reason=f"FinRL 손절: {pnl_pct:.1f}%",
+                    score=score, confidence=confidence)
+            if pnl_pct >= take_profit:
+                return TradeSignal(
+                    ticker=ticker, action="sell", strength=0.8,
+                    quantity_pct=0.5,
+                    reason=f"FinRL 익절: {pnl_pct:.1f}%",
+                    score=score, confidence=confidence)
+
+        indicators = analysis_result.get("indicators", {})
+        macd = indicators.get("macd", {}).get("value", 0)
+        rsi = indicators.get("rsi", {}).get("value", 50)
+        boll_ub = indicators.get("bollinger", {}).get("upper", 0)
+        boll_lb = indicators.get("bollinger", {}).get("lower", 0)
+
+        action_hint = 0
+        if score >= 65:
+            action_hint = min((score - 50) / 50, 1.0)
+        elif score <= 35:
+            action_hint = max((score - 50) / 50, -1.0)
+
+        if action_hint > 0.3:
+            strength = min(action_hint, 1.0)
+            return TradeSignal(
+                ticker=ticker, action="buy",
+                strength=strength,
+                quantity_pct=0.05 + 0.05 * strength,
+                reason=f"FinRL 매수: score={score:.1f}, hint={action_hint:.2f}",
+                score=score, confidence=confidence)
+        elif action_hint < -0.3:
+            strength = min(abs(action_hint), 1.0)
+            qty_pct = 0.5 if strength > 0.7 else 0.3
+            return TradeSignal(
+                ticker=ticker, action="sell",
+                strength=strength,
+                quantity_pct=qty_pct,
+                reason=f"FinRL 매도: score={score:.1f}, hint={action_hint:.2f}",
+                score=score, confidence=confidence)
+
+        return TradeSignal(
+            ticker=ticker, action="hold", strength=0,
+            quantity_pct=0,
+            reason=f"FinRL 관망: score={score:.1f}",
+            score=score, confidence=confidence)
+
+
 def get_strategy(name: str, config: dict) -> BaseStrategy:
     cls = STRATEGY_REGISTRY.get(name)
     if cls is None:
