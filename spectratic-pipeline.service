@@ -6,7 +6,7 @@ After=network.target
 Type=simple
 User=ubuntu
 WorkingDirectory=/home/ubuntu/us-stock-analyzer
-ExecStart=/usr/bin/python3 -m data.pipeline
+ExecStart=/home/ubuntu/us-stock-analyzer/venv/bin/python -m data.pipeline
 Restart=always
 RestartSec=10
 Environment=PYTHONUNBUFFERED=1
