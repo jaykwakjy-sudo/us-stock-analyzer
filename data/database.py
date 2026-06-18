@@ -209,7 +209,9 @@ def get_upcoming_events(days_ahead: int = 30) -> list[dict]:
 def get_setting(key: str):
     db = get_client()
     result = db.table("settings").select("value").eq("key", key).maybe_single().execute()
-    return result.data["value"] if result.data else None
+    if result is None or not hasattr(result, "data") or not result.data:
+        return None
+    return result.data["value"]
 
 
 def save_setting(key: str, value: dict):
