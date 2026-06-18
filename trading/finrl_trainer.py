@@ -85,11 +85,13 @@ def fetch_and_preprocess(tickers, train_start, train_end, trade_end, indicators)
     fe = FeatureEngineer(
         use_technical_indicator=True,
         tech_indicator_list=indicators,
-        use_vix=True,
-        use_turbulence=True,
+        use_vix=False,
+        use_turbulence=False,
         user_defined_feature=False,
     )
     processed = fe.preprocess_data(df_raw)
+    import numpy as np
+    processed = processed.replace([np.inf, -np.inf], 0)
 
     list_ticker = processed["tic"].unique().tolist()
     list_date = list(
