@@ -134,11 +134,12 @@ def build_env(df, stock_dim, indicators, initial_amount, hmax):
 def train_agents(env, config):
     from finrl.agents.stablebaselines3.models import DRLAgent
     from stable_baselines3.common.logger import configure
+    from stable_baselines3.common.vec_env import DummyVecEnv
 
     os.makedirs(TRAINED_MODEL_DIR, exist_ok=True)
     os.makedirs(RESULTS_DIR, exist_ok=True)
 
-    _, sb_env = env.get_sb_env()
+    sb_env = DummyVecEnv([lambda: env])
     results = {}
 
     for algo_name in config["algorithms"]:
@@ -217,11 +218,12 @@ def backtest(env_kwargs, trade_data, config):
 
 def save_results(db, train_results, backtest_results, config):
     best_algo = None
-    best_pnl = -float("inf")
+    best_pnl = None
 
     for algo, result in backtest_results.items():
-        if result.get("pnl_pct", -999) > best_pnl:
-            best_pnl = result["pnl_pct"]
+        pnl = result.get("pnl_pct")
+        if pnl is not None and (best_pnl is None or pnl > best_pnl):
+            best_pnl = pnl
             best_algo = algo
 
     record = {
@@ -233,7 +235,7 @@ def save_results(db, train_results, backtest_results, config):
         "train_results": train_results,
         "backtest_results": backtest_results,
         "best_algorithm": best_algo,
-        "best_pnl_pct": best_pnl,
+        "best_pnl_pct": best_pnl if best_pnl is not None else 0,
     }
 
     db.table("settings").upsert(
