@@ -3,7 +3,7 @@
 import yfinance as yf
 import pandas as pd
 from datetime import datetime, timedelta
-from config import WATCHLIST, INDICES, SECTOR_ETFS
+from config import INDICES, SECTOR_ETFS
 
 
 def get_stock_data(ticker: str, period: str = "1y") -> pd.DataFrame:
@@ -61,10 +61,16 @@ def get_market_overview() -> dict:
     return result
 
 
-def get_watchlist_summary() -> list[dict]:
-    """관심종목 요약 데이터"""
+def get_watchlist_summary(watchlist_items: list[dict] = None) -> list[dict]:
+    """관심종목 요약 데이터. watchlist_items: DB에서 로드한 관심종목 리스트"""
+    if watchlist_items is None:
+        from data.database import get_watchlist
+        watchlist_items = get_watchlist()
+
     summaries = []
-    for ticker, name in WATCHLIST.items():
+    for w in watchlist_items:
+        ticker = w["ticker"]
+        name = w["name"]
         try:
             stock = yf.Ticker(ticker)
             hist = stock.history(period="5d")
@@ -89,13 +95,9 @@ def get_watchlist_summary() -> list[dict]:
             })
         except Exception:
             summaries.append({
-                "ticker": ticker,
-                "name": name,
-                "price": 0,
-                "change_pct": 0,
-                "volume": 0,
-                "market_cap": 0,
-                "pe_ratio": None,
+                "ticker": ticker, "name": name,
+                "price": 0, "change_pct": 0, "volume": 0,
+                "market_cap": 0, "pe_ratio": None,
             })
     return summaries
 
@@ -128,10 +130,15 @@ def get_sector_performance() -> list[dict]:
     return sorted(performances, key=lambda x: x["change_1w"], reverse=True)
 
 
-def get_earnings_calendar(days_ahead: int = 30) -> list[dict]:
+def get_earnings_calendar(days_ahead: int = 30, watchlist_items: list[dict] = None) -> list[dict]:
     """관심종목 실적발표 일정"""
+    if watchlist_items is None:
+        from data.database import get_watchlist
+        watchlist_items = get_watchlist()
+
     calendar = []
-    for ticker, name in WATCHLIST.items():
+    for w in watchlist_items:
+        ticker, name = w["ticker"], w["name"]
         try:
             stock = yf.Ticker(ticker)
             cal = stock.calendar

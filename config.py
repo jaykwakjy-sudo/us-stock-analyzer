@@ -1,17 +1,9 @@
-"""프로젝트 설정"""
+"""프로젝트 설정 — 폴백 전용 (DB 설정이 없을 때만 사용)
 
-# 관심 종목 (빅테크 중심)
-WATCHLIST = {
-    "AAPL": "Apple",
-    "MSFT": "Microsoft",
-    "GOOGL": "Alphabet",
-    "AMZN": "Amazon",
-    "NVDA": "NVIDIA",
-    "META": "Meta",
-    "TSLA": "Tesla",
-}
+모든 운영 설정은 Supabase settings 테이블에서 로드됩니다.
+이 파일은 DB 연결 전 또는 설정 미등록 시 안전한 기본값을 제공합니다.
+"""
 
-# 주요 지수
 INDICES = {
     "^GSPC": "S&P 500",
     "^IXIC": "NASDAQ",
@@ -20,7 +12,6 @@ INDICES = {
     "^TNX": "미국 10년 국채금리",
 }
 
-# 섹터 ETF
 SECTOR_ETFS = {
     "XLK": "Technology",
     "XLF": "Financials",
@@ -35,7 +26,7 @@ SECTOR_ETFS = {
     "XLC": "Communication Services",
 }
 
-# 기술적 분석 기본 설정
+# 레거시 호환용 — 새 코드는 DB에서 로드
 TECHNICAL = {
     "sma_periods": [20, 50, 200],
     "rsi_period": 14,
@@ -44,15 +35,4 @@ TECHNICAL = {
     "macd_signal": 9,
     "bollinger_period": 20,
     "bollinger_std": 2,
-}
-
-# 포지션 전략
-STRATEGY = {
-    "long_term_ratio": 0.6,      # 장기투자 비중 60%
-    "swing_ratio": 0.4,          # 스윙 비중 40%
-    "max_single_stock": 0.25,    # 단일 종목 최대 25%
-    "stop_loss_pct": -7,         # 손절 기준 -7%
-    "take_profit_pct": 15,       # 익절 기준 +15%
-    "swing_stop_loss_pct": -5,   # 스윙 손절 -5%
-    "swing_take_profit_pct": 10, # 스윙 익절 +10%
 }

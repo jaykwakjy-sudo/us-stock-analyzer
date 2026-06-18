@@ -1,0 +1,15 @@
+[Unit]
+Description=Spectratic Realtime Data Pipeline
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/us-stock-analyzer
+ExecStart=/usr/bin/python3 -m data.pipeline
+Restart=always
+RestartSec=10
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

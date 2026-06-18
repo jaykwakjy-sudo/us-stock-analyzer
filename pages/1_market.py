@@ -7,7 +7,13 @@ import sys, os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from data.collector import get_market_overview, get_sector_performance, get_stock_data
-from config import INDICES
+from data.database import get_setting
+
+_indices_db = get_setting("indices")
+INDICES = _indices_db if _indices_db else {
+    "^GSPC": "S&P 500", "^IXIC": "NASDAQ", "^DJI": "Dow Jones",
+    "^VIX": "VIX (공포지수)", "^TNX": "미국 10년 국채금리",
+}
 
 st.set_page_config(page_title="증시 분석", page_icon="📈", layout="wide")
 st.title("📈 증시 분석")
