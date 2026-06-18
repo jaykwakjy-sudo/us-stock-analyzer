@@ -181,8 +181,6 @@ def backtest(env_kwargs, trade_data, config):
 
     e_trade = StockTradingEnv(
         df=trade_data,
-        turbulence_threshold=70,
-        risk_indicator_col="vix",
         **env_kwargs,
     )
 
@@ -252,7 +250,10 @@ def save_results(db, train_results, backtest_results, config):
             on_conflict="key",
         ).execute()
 
-    logger.info(f"최적 알고리즘: {best_algo.upper()} ({best_pnl:+.2f}%)")
+    if best_algo:
+        logger.info(f"최적 알고리즘: {best_algo.upper()} ({best_pnl:+.2f}%)")
+    else:
+        logger.warning("백테스트 결과 없음 — 최적 알고리즘 미선정")
     return best_algo
 
 
