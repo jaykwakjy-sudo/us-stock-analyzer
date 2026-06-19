@@ -130,10 +130,10 @@ class SignalScoreStrategy(BaseStrategy):
 
 @register_strategy
 class FinRLStrategy(BaseStrategy):
-    """FinRL 강화학습 모델 기반 전략
+    """FinRL-X 가중치 기반 강화학습 전략
 
-    학습된 DRL 모델이 현재 상태(가격, 보유량, 지표)를 보고
-    각 종목별 매수/매도 행동을 결정.
+    학습된 DRL 모델이 종목별 포트폴리오 가중치를 출력.
+    가중치 변화량으로 매수/매도/홀드 판단.
     모델이 없으면 signal_score 전략으로 폴백.
     """
     name = "finrl"
@@ -141,7 +141,9 @@ class FinRLStrategy(BaseStrategy):
     def __init__(self, config: dict):
         super().__init__(config)
         self._model = None
+        self._algo: str = ""
         self._tickers: list[str] = []
+        self._current_weights: dict[str, float] = {}
         self._fallback = SignalScoreStrategy(config)
         self._load_model()
 
@@ -150,29 +152,35 @@ class FinRLStrategy(BaseStrategy):
         try:
             from data.database import get_setting
             finrl_config = get_setting("finrl_config") or {}
-            algo = finrl_config.get("active_algorithm", "ppo")
+            self._algo = finrl_config.get("active_algorithm", "ppo")
+            self._tickers = finrl_config.get("tickers", [])
+
+            finrl_results = get_setting("finrl_results") or {}
+            best_weights = finrl_results.get("best_weights", {})
+            if best_weights:
+                self._current_weights = best_weights
 
             model_dir = os.path.join(
                 os.path.dirname(os.path.dirname(__file__)), "trained_models"
             )
-            model_path = os.path.join(model_dir, f"agent_{algo}")
+            model_path = os.path.join(model_dir, f"agent_{self._algo}")
 
             if not os.path.exists(model_path + ".zip"):
-                logger.warning(f"FinRL 모델 없음: {model_path}.zip → 폴백")
+                logger.warning(f"FinRL-X 모델 없음: {model_path}.zip → 폴백")
                 return
 
             from stable_baselines3 import A2C, DDPG, PPO, SAC, TD3
             ALGO_CLASSES = {"a2c": A2C, "ddpg": DDPG, "ppo": PPO, "sac": SAC, "td3": TD3}
 
-            cls = ALGO_CLASSES.get(algo)
+            cls = ALGO_CLASSES.get(self._algo)
             if cls is None:
-                logger.warning(f"알 수 없는 알고리즘: {algo}")
+                logger.warning(f"알 수 없는 알고리즘: {self._algo}")
                 return
 
             self._model = cls.load(model_path)
-            logger.info(f"FinRL 모델 로드: {algo.upper()}")
+            logger.info(f"FinRL-X 모델 로드: {self._algo.upper()} (weight-centric)")
         except Exception as e:
-            logger.error(f"FinRL 모델 로드 실패: {e}")
+            logger.error(f"FinRL-X 모델 로드 실패: {e}")
 
     def evaluate(self, ticker: str, analysis_result: dict,
                  position: Optional[dict] = None) -> TradeSignal:
@@ -191,49 +199,44 @@ class FinRLStrategy(BaseStrategy):
                 return TradeSignal(
                     ticker=ticker, action="sell", strength=1.0,
                     quantity_pct=1.0,
-                    reason=f"FinRL 손절: {pnl_pct:.1f}%",
+                    reason=f"FinRL-X 손절: {pnl_pct:.1f}%",
                     score=score, confidence=confidence)
             if pnl_pct >= take_profit:
                 return TradeSignal(
                     ticker=ticker, action="sell", strength=0.8,
                     quantity_pct=0.5,
-                    reason=f"FinRL 익절: {pnl_pct:.1f}%",
+                    reason=f"FinRL-X 익절: {pnl_pct:.1f}%",
                     score=score, confidence=confidence)
 
-        indicators = analysis_result.get("indicators", {})
-        macd = indicators.get("macd", {}).get("value", 0)
-        rsi = indicators.get("rsi", {}).get("value", 50)
-        boll_ub = indicators.get("bollinger", {}).get("upper", 0)
-        boll_lb = indicators.get("bollinger", {}).get("lower", 0)
+        target_weight = self._current_weights.get(ticker, 0)
+        equal_weight = 1.0 / max(len(self._tickers), 1)
 
-        action_hint = 0
-        if score >= 65:
-            action_hint = min((score - 50) / 50, 1.0)
-        elif score <= 35:
-            action_hint = max((score - 50) / 50, -1.0)
+        weight_delta = target_weight - equal_weight
+        buy_threshold = self.config.get("weight_buy_threshold", 0.02)
+        sell_threshold = self.config.get("weight_sell_threshold", -0.02)
 
-        if action_hint > 0.3:
-            strength = min(action_hint, 1.0)
+        if weight_delta > buy_threshold:
+            strength = min(weight_delta / 0.1, 1.0)
             return TradeSignal(
                 ticker=ticker, action="buy",
                 strength=strength,
-                quantity_pct=0.05 + 0.05 * strength,
-                reason=f"FinRL 매수: score={score:.1f}, hint={action_hint:.2f}",
+                quantity_pct=target_weight,
+                reason=f"FinRL-X 매수: weight={target_weight:.3f} (delta={weight_delta:+.3f})",
                 score=score, confidence=confidence)
-        elif action_hint < -0.3:
-            strength = min(abs(action_hint), 1.0)
-            qty_pct = 0.5 if strength > 0.7 else 0.3
+        elif weight_delta < sell_threshold:
+            strength = min(abs(weight_delta) / 0.1, 1.0)
+            qty_pct = min(abs(weight_delta) / equal_weight, 1.0) if equal_weight > 0 else 0.5
             return TradeSignal(
                 ticker=ticker, action="sell",
                 strength=strength,
                 quantity_pct=qty_pct,
-                reason=f"FinRL 매도: score={score:.1f}, hint={action_hint:.2f}",
+                reason=f"FinRL-X 매도: weight={target_weight:.3f} (delta={weight_delta:+.3f})",
                 score=score, confidence=confidence)
 
         return TradeSignal(
             ticker=ticker, action="hold", strength=0,
             quantity_pct=0,
-            reason=f"FinRL 관망: score={score:.1f}",
+            reason=f"FinRL-X 관망: weight={target_weight:.3f}",
             score=score, confidence=confidence)
 
 
